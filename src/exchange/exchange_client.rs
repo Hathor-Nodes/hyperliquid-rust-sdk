@@ -485,6 +485,20 @@ impl ExchangeClient {
         orders: Vec<ClientOrderRequest>,
         wallet: Option<&PrivateKeySigner>,
     ) -> Result<ExchangeResponseStatus> {
+        self.bulk_order_with_grouping(orders, wallet, "na").await
+    }
+
+    /// Like `bulk_order`, but lets the caller specify the L1 `grouping`
+    /// field on the action. Valid values include `"na"` (default for
+    /// `bulk_order`), `"normalTpsl"` (atomic IOC entry + paired SL
+    /// trigger), and `"positionTpsl"`. Mirrors the `grouping` kwarg the
+    /// Python SDK exposes on `exchange.bulk_orders`.
+    pub async fn bulk_order_with_grouping(
+        &self,
+        orders: Vec<ClientOrderRequest>,
+        wallet: Option<&PrivateKeySigner>,
+        grouping: &str,
+    ) -> Result<ExchangeResponseStatus> {
         let wallet = wallet.unwrap_or(&self.wallet);
         let timestamp = next_nonce();
 
@@ -496,7 +510,7 @@ impl ExchangeClient {
 
         let action = Actions::Order(BulkOrder {
             orders: transformed_orders,
-            grouping: "na".to_string(),
+            grouping: grouping.to_string(),
             builder: None,
         });
         let connection_id = action.hash(timestamp, self.vault_address)?;
@@ -511,7 +525,21 @@ impl ExchangeClient {
         &self,
         orders: Vec<ClientOrderRequest>,
         wallet: Option<&PrivateKeySigner>,
+        builder: BuilderInfo,
+    ) -> Result<ExchangeResponseStatus> {
+        self.bulk_order_with_builder_and_grouping(orders, wallet, builder, "na")
+            .await
+    }
+
+    /// Like `bulk_order_with_builder`, but lets the caller specify the
+    /// L1 `grouping` field. See `bulk_order_with_grouping` for the
+    /// accepted values.
+    pub async fn bulk_order_with_builder_and_grouping(
+        &self,
+        orders: Vec<ClientOrderRequest>,
+        wallet: Option<&PrivateKeySigner>,
         mut builder: BuilderInfo,
+        grouping: &str,
     ) -> Result<ExchangeResponseStatus> {
         let wallet = wallet.unwrap_or(&self.wallet);
         let timestamp = next_nonce();
@@ -526,7 +554,7 @@ impl ExchangeClient {
 
         let action = Actions::Order(BulkOrder {
             orders: transformed_orders,
-            grouping: "na".to_string(),
+            grouping: grouping.to_string(),
             builder: Some(builder),
         });
         let connection_id = action.hash(timestamp, self.vault_address)?;
