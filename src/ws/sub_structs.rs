@@ -36,7 +36,7 @@ pub struct AllMidsData {
     pub mids: HashMap<String, String>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TradeInfo {
     pub coin: String,
@@ -56,7 +56,7 @@ pub struct TradeInfo {
     pub tid: u64,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserFillsData {
     pub is_snapshot: Option<bool>,
@@ -64,7 +64,7 @@ pub struct UserFillsData {
     pub fills: Vec<TradeInfo>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub enum UserData {
     Fills(Vec<TradeInfo>),
@@ -73,7 +73,7 @@ pub enum UserData {
     NonUserCancel(Vec<NonUserCancel>),
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Liquidation {
     pub lid: u64,
     pub liquidator: String,
@@ -82,7 +82,7 @@ pub struct Liquidation {
     pub liquidated_account_value: String,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NonUserCancel {
     pub coin: String,
     pub oid: u64,
@@ -133,7 +133,7 @@ pub struct BasicOrder {
     pub cloid: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserFundingsData {
     pub is_snapshot: Option<bool>,
@@ -141,7 +141,7 @@ pub struct UserFundingsData {
     pub fundings: Vec<UserFunding>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct UserFunding {
     pub time: u64,
