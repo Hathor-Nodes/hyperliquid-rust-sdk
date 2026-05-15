@@ -8,8 +8,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::{
     info::{
         ActiveAssetDataResponse, CandlesSnapshotResponse, FundingHistoryResponse,
-        L2SnapshotResponse, OpenOrdersResponse, OrderInfo, RecentTradesResponse, UserFillsResponse,
-        UserStateResponse,
+        L2SnapshotResponse, OpenOrdersResponse, OrderInfo, RecentTradesResponse,
+        SpotUserStateResponse, UserFillsResponse, UserStateResponse,
     },
     meta::{AssetContext, Meta, SpotMeta, SpotMetaAndAssetCtxs},
     prelude::*,
@@ -198,6 +198,21 @@ impl InfoClient {
     }
 
     pub async fn user_token_balances(&self, address: Address) -> Result<UserTokenBalanceResponse> {
+        let input = InfoRequest::UserTokenBalances { user: address };
+        self.send_info_request(input).await
+    }
+
+    /// Spot clearinghouse view — returns per-coin spot balances for `address`.
+    ///
+    /// Mirrors the Python SDK's `Info.spot_user_state(addr)` so the Rust port
+    /// can compute total account equity as `perps + spot USDC` (CLAUDE.md
+    /// §Position sizing — the 2026-04-22 incident class).
+    ///
+    /// Wire-identical to `user_token_balances` (both POST
+    /// `{"type": "spotClearinghouseState", "user": <addr>}`); the response
+    /// type differs only in that `SpotUserStateResponse::balances` omits the
+    /// `entry_ntl` field for parity with the Python `dict` shape.
+    pub async fn spot_user_state(&self, address: Address) -> Result<SpotUserStateResponse> {
         let input = InfoRequest::UserTokenBalances { user: address };
         self.send_info_request(input).await
     }
