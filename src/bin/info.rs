@@ -48,7 +48,7 @@ async fn user_state_example(info_client: &InfoClient) {
 
     info!(
         "User state data for {user}: {:?}",
-        info_client.user_state(user).await.unwrap()
+        info_client.user_state(user, None).await.unwrap()
     );
 }
 

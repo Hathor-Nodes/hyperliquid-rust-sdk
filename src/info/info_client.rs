@@ -35,6 +35,8 @@ pub enum InfoRequest {
     #[serde(rename = "clearinghouseState")]
     UserState {
         user: Address,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
     },
     #[serde(rename = "batchClearinghouseStates")]
     UserStates {
@@ -187,8 +189,21 @@ impl InfoClient {
         self.send_info_request(input).await
     }
 
-    pub async fn user_state(&self, address: Address) -> Result<UserStateResponse> {
-        let input = InfoRequest::UserState { user: address };
+    /// Perps clearinghouse view for `address` on the named HIP-3 dex.
+    ///
+    /// `dex = None` (or `Some("")`) → native HL clearinghouse, wire-identical
+    /// to pre-#213 calls.  `dex = Some("xyz")` → HIP-3 clearinghouse for that
+    /// dex.  Mirrors the Python SDK's `Info.user_state(address, dex=dex)`.
+    pub async fn user_state(
+        &self,
+        address: Address,
+        dex: Option<&str>,
+    ) -> Result<UserStateResponse> {
+        let dex_owned = dex.filter(|s| !s.is_empty()).map(str::to_string);
+        let input = InfoRequest::UserState {
+            user: address,
+            dex: dex_owned,
+        };
         self.send_info_request(input).await
     }
 
@@ -334,5 +349,43 @@ impl InfoClient {
     ) -> Result<ActiveAssetDataResponse> {
         let input = InfoRequest::ActiveAssetData { user, coin };
         self.send_info_request(input).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::Address;
+
+    #[test]
+    fn user_state_request_serialises_native_without_dex_field() {
+        let addr: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
+        let req = InfoRequest::UserState {
+            user: addr,
+            dex: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            "{\"type\":\"clearinghouseState\",\"user\":\"0x0000000000000000000000000000000000000001\"}"
+        );
+    }
+
+    #[test]
+    fn user_state_request_serialises_hip3_with_dex_field() {
+        let addr: Address = "0x0000000000000000000000000000000000000001"
+            .parse()
+            .unwrap();
+        let req = InfoRequest::UserState {
+            user: addr,
+            dex: Some("xyz".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(
+            json,
+            "{\"type\":\"clearinghouseState\",\"user\":\"0x0000000000000000000000000000000000000001\",\"dex\":\"xyz\"}"
+        );
     }
 }
