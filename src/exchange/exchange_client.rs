@@ -106,6 +106,7 @@ impl ExchangeClient {
         base_url: Option<BaseUrl>,
         meta: Option<Meta>,
         vault_address: Option<Address>,
+        perp_dexs: Option<Vec<String>>,
     ) -> Result<ExchangeClient> {
         let client = client.unwrap_or_default();
         let base_url = base_url.unwrap_or(BaseUrl::Mainnet);
@@ -114,7 +115,7 @@ impl ExchangeClient {
         let meta = if let Some(meta) = meta {
             meta
         } else {
-            info.meta().await?
+            info.meta(None).await?
         };
 
         let mut coin_to_asset = HashMap::new();
@@ -126,6 +127,50 @@ impl ExchangeClient {
             .spot_meta()
             .await?
             .add_pair_and_name_to_index_map(coin_to_asset);
+
+        if let Some(dexs) = perp_dexs.as_ref() {
+            if !dexs.is_empty() {
+                // Resolve HIP-3 offsets from the canonical HL ordering.
+                // Response shape: [null, {name: "xyz", ...}, {name: "flx", ...}, ...].
+                // Native slot at index 0 is literal JSON null and is filtered out;
+                // each remaining slot's offset is 110000 + (position in [1..]) * 10000.
+                //
+                // NOTE: divergence from Python. hyperliquid/info.py:55-69 iterates
+                // self.perp_dexs()[1:] and accesses perp_dex["name"] unconditionally;
+                // it would panic if HL ever returned a non-leading null. The Rust
+                // path defensively filter_maps so a future null in slot >0 (e.g. a
+                // decommissioned dex returned as null instead of removed) is skipped
+                // gracefully. The .enumerate() runs before .filter_map so surviving
+                // dexes keep their canonical position-based offset.
+                let all_dexs = info.perp_dexs().await?;
+                let dex_to_offset: HashMap<String, u32> = all_dexs
+                    .iter()
+                    .skip(1)
+                    .enumerate()
+                    .filter_map(|(i, slot)| {
+                        slot.as_ref()
+                            .map(|d| (d.name.clone(), 110000 + i as u32 * 10000))
+                    })
+                    .collect();
+
+                for dex_name in dexs {
+                    let &offset = dex_to_offset.get(dex_name).ok_or_else(|| {
+                        let mut available: Vec<String> = dex_to_offset.keys().cloned().collect();
+                        available.sort();
+                        Error::GenericRequest(format!(
+                            "perp dex '{dex_name}' not in perpDexs response \
+                             (available: [{}]) — operator: check YAML `dex:` \
+                             matches a current HL dex",
+                            available.join(", ")
+                        ))
+                    })?;
+                    let dex_meta = info.meta(Some(dex_name.as_str())).await?;
+                    for (i, asset) in dex_meta.universe.iter().enumerate() {
+                        coin_to_asset.insert(asset.name.clone(), offset + i as u32);
+                    }
+                }
+            }
+        }
 
         Ok(ExchangeClient {
             wallet,
@@ -420,7 +465,7 @@ impl ExchangeClient {
             _ => return Err(Error::GenericRequest("Invalid base URL".to_string())),
         };
         let info_client = InfoClient::new(None, Some(base_url)).await?;
-        let meta = info_client.meta().await?;
+        let meta = info_client.meta(None).await?;
 
         let asset_meta = meta
             .universe

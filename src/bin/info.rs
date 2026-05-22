@@ -89,7 +89,7 @@ async fn recent_trades(info_client: &InfoClient) {
 }
 
 async fn meta_example(info_client: &InfoClient) {
-    info!("Meta: {:?}", info_client.meta().await.unwrap());
+    info!("Meta: {:?}", info_client.meta(None).await.unwrap());
 }
 
 async fn meta_and_asset_contexts_example(info_client: &InfoClient) {
