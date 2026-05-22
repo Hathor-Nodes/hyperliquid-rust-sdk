@@ -165,9 +165,7 @@ impl ExchangeClient {
                         ))
                     })?;
                     let dex_meta = info.meta(Some(dex_name.as_str())).await?;
-                    for (i, asset) in dex_meta.universe.iter().enumerate() {
-                        coin_to_asset.insert(asset.name.clone(), offset + i as u32);
-                    }
+                    insert_hip3_assets(&mut coin_to_asset, &dex_meta, offset, dex_name)?;
                 }
             }
         }
@@ -942,6 +940,32 @@ impl ExchangeClient {
     }
 }
 
+/// Insert every asset in a HIP-3 dex's `Meta::universe` into `coin_to_asset`
+/// at `offset + i`. Fails loud (`Error::GenericRequest`) if any asset name
+/// collides with a pre-existing entry (native perp, spot, or earlier HIP-3
+/// dex) rather than silently overwriting it. A collision indicates either an
+/// HL-side naming-convention break or a HIP-3 dex shipping a non-prefixed
+/// asset name; either is a money-path event the operator must see at
+/// construction time, not at first mis-routed order.
+fn insert_hip3_assets(
+    coin_to_asset: &mut HashMap<String, u32>,
+    dex_meta: &Meta,
+    offset: u32,
+    dex_name: &str,
+) -> Result<()> {
+    for (i, asset) in dex_meta.universe.iter().enumerate() {
+        let new_asset = offset + i as u32;
+        if let Some(prev) = coin_to_asset.insert(asset.name.clone(), new_asset) {
+            return Err(Error::GenericRequest(format!(
+                "coin_to_asset collision: '{}' already mapped to asset {} when \
+                 inserting HIP-3 dex '{}' at asset {} — HL universe naming conflict",
+                asset.name, prev, dex_name, new_asset
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn round_to_decimals(value: f64, decimals: u32) -> f64 {
     let factor = 10f64.powi(decimals as i32);
     (value * factor).round() / factor
@@ -1235,6 +1259,48 @@ mod tests {
         // Verify vault signature is different from non-vault signature
         assert_ne!(mainnet_signature, vault_signature);
 
+        Ok(())
+    }
+
+    fn asset_meta(name: &str) -> crate::meta::AssetMeta {
+        crate::meta::AssetMeta {
+            name: name.to_string(),
+            sz_decimals: 2,
+            max_leverage: 3,
+            only_isolated: None,
+        }
+    }
+
+    #[test]
+    fn hip3_insert_returns_err_on_collision_with_native() {
+        let mut coin_to_asset: HashMap<String, u32> = HashMap::new();
+        coin_to_asset.insert("SILVER".to_string(), 5);
+        let dex_meta = Meta {
+            universe: vec![asset_meta("SILVER")],
+        };
+
+        let result = insert_hip3_assets(&mut coin_to_asset, &dex_meta, 110000, "xyz");
+
+        let err = result.expect_err("expected collision Err");
+        let msg = format!("{err}");
+        assert!(msg.contains("SILVER"), "msg missing asset name: {msg}");
+        assert!(msg.contains("collision"), "msg missing 'collision': {msg}");
+        assert_eq!(coin_to_asset["SILVER"], 110000);
+    }
+
+    #[test]
+    fn hip3_insert_inserts_all_on_no_collision() -> Result<()> {
+        let mut coin_to_asset: HashMap<String, u32> = HashMap::new();
+        coin_to_asset.insert("BTC".to_string(), 0);
+        let dex_meta = Meta {
+            universe: vec![asset_meta("xyz:SILVER"), asset_meta("xyz:GOLD")],
+        };
+
+        insert_hip3_assets(&mut coin_to_asset, &dex_meta, 110000, "xyz")?;
+
+        assert_eq!(coin_to_asset["BTC"], 0);
+        assert_eq!(coin_to_asset["xyz:SILVER"], 110000);
+        assert_eq!(coin_to_asset["xyz:GOLD"], 110001);
         Ok(())
     }
 }
