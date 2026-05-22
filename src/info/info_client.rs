@@ -28,6 +28,18 @@ pub struct CandleSnapshotRequest {
     end_time: u64,
 }
 
+/// Subset of the `/info {"type":"perpDexs"}` per-slot response shape.
+///
+/// The HL API returns a JSON array where index `[0]` is literal `null`
+/// (the native dex slot), and indices `[1..]` are objects describing
+/// each builder-deployed HIP-3 dex. Only `name` is consumed here; the
+/// other response fields (`fullName`, `deployer`, `oracleUpdater`,
+/// `feeRecipient`, `assetToStreamingOiCap`) are ignored.
+#[derive(Deserialize, Debug, Clone)]
+pub struct PerpDexInfo {
+    pub name: String,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
@@ -56,7 +68,11 @@ pub enum InfoRequest {
         user: Address,
         oid: u64,
     },
-    Meta,
+    Meta {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
+    },
+    PerpDexs,
     MetaAndAssetCtxs,
     SpotMeta,
     SpotMetaAndAssetCtxs,
@@ -237,8 +253,31 @@ impl InfoClient {
         self.send_info_request(input).await
     }
 
-    pub async fn meta(&self) -> Result<Meta> {
-        let input = InfoRequest::Meta;
+    /// Universe metadata for a perp dex.
+    ///
+    /// `dex = None` (or `Some("")`) → native HL universe, wire-identical to
+    /// pre-#274 calls (`{"type":"meta"}`). `dex = Some("xyz")` → HIP-3
+    /// clearinghouse universe for that dex (`{"type":"meta","dex":"xyz"}`).
+    /// Mirrors the Python SDK's `Info.meta(dex=dex)` and the empty/native
+    /// vs HIP-3 normalisation applied to `user_state` in PR #259.
+    pub async fn meta(&self, dex: Option<&str>) -> Result<Meta> {
+        let dex_owned = dex.filter(|s| !s.is_empty()).map(str::to_string);
+        let input = InfoRequest::Meta { dex: dex_owned };
+        self.send_info_request(input).await
+    }
+
+    /// Ordered list of all perp dex slots on this exchange.
+    ///
+    /// The response is a JSON array whose `[0]` element is literal `null`
+    /// (native HL placeholder); indices `[1..]` are `PerpDexInfo` objects
+    /// for builder-deployed HIP-3 dexes in HL's canonical ordering. Asset
+    /// index offset for the `i`th non-null slot is `110000 + (i-1) * 10000`
+    /// where `i` is the 1-based position in the response.
+    ///
+    /// Caller is responsible for skipping the `null` slot and computing
+    /// offsets; see `ExchangeClient::new` for the reference usage.
+    pub async fn perp_dexs(&self) -> Result<Vec<Option<PerpDexInfo>>> {
+        let input = InfoRequest::PerpDexs;
         self.send_info_request(input).await
     }
 
@@ -387,5 +426,41 @@ mod tests {
             json,
             "{\"type\":\"clearinghouseState\",\"user\":\"0x0000000000000000000000000000000000000001\",\"dex\":\"xyz\"}"
         );
+    }
+
+    #[test]
+    fn meta_request_serialises_native_without_dex_field() {
+        let req = InfoRequest::Meta { dex: None };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(json, "{\"type\":\"meta\"}");
+    }
+
+    #[test]
+    fn meta_request_serialises_hip3_with_dex_field() {
+        let req = InfoRequest::Meta {
+            dex: Some("xyz".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(json, "{\"type\":\"meta\",\"dex\":\"xyz\"}");
+    }
+
+    #[test]
+    fn perp_dexs_request_serialises() {
+        let req = InfoRequest::PerpDexs;
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(json, "{\"type\":\"perpDexs\"}");
+    }
+
+    #[test]
+    fn perp_dex_info_deserialises_null_slot() {
+        // The native slot at index 0 of the perpDexs response is literal JSON null.
+        // Verify Option<PerpDexInfo> handles both the null slot and a populated slot.
+        let null_slot: Option<PerpDexInfo> = serde_json::from_str("null").unwrap();
+        assert!(null_slot.is_none());
+
+        let xyz_slot: Option<PerpDexInfo> =
+            serde_json::from_str(r#"{"name":"xyz","fullName":"XYZ Deployer","deployer":"0x0"}"#)
+                .unwrap();
+        assert_eq!(xyz_slot.unwrap().name, "xyz");
     }
 }

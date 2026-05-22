@@ -16,9 +16,10 @@ async fn main() {
             .parse()
             .unwrap();
 
-    let exchange_client = ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), None, None)
-        .await
-        .unwrap();
+    let exchange_client =
+        ExchangeClient::new(None, wallet, Some(BaseUrl::Testnet), None, None, None)
+            .await
+            .unwrap();
 
     // Market open order
     let market_open_params = MarketOrderParams {

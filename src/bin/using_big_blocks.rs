@@ -11,10 +11,16 @@ async fn main() {
             .parse()
             .unwrap();
 
-    let exchange_client =
-        ExchangeClient::new(None, wallet.clone(), Some(BaseUrl::Testnet), None, None)
-            .await
-            .unwrap();
+    let exchange_client = ExchangeClient::new(
+        None,
+        wallet.clone(),
+        Some(BaseUrl::Testnet),
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
 
     let res = exchange_client
         .enable_big_blocks(false, Some(&wallet))
