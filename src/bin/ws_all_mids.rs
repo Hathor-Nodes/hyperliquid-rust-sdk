@@ -14,7 +14,7 @@ async fn main() {
 
     let (sender, mut receiver) = unbounded_channel();
     let subscription_id = info_client
-        .subscribe(Subscription::AllMids, sender)
+        .subscribe(Subscription::AllMids { dex: None }, sender)
         .await
         .unwrap();
 

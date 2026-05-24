@@ -54,7 +54,10 @@ pub(crate) struct WsManager {
 #[serde(tag = "type")]
 #[serde(rename_all = "camelCase")]
 pub enum Subscription {
-    AllMids,
+    AllMids {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dex: Option<String>,
+    },
     Notification { user: Address },
     WebData2 { user: Address },
     Candle { coin: String, interval: String },
@@ -154,6 +157,7 @@ impl WsManager {
                                         // TODO should these special keys be removed and instead use the simpler direct identifier mapping?
                                         if identifier.eq("userEvents")
                                             || identifier.eq("orderUpdates")
+                                            || identifier.eq("allMids")
                                         {
                                             for subscription_data in v {
                                                 if let Err(err) = Self::subscribe(
@@ -228,8 +232,7 @@ impl WsManager {
 
     fn get_identifier(message: &Message) -> Result<String> {
         match message {
-            Message::AllMids(_) => serde_json::to_string(&Subscription::AllMids)
-                .map_err(|e| Error::JsonParse(e.to_string())),
+            Message::AllMids(_) => Ok("allMids".to_string()),
             Message::User(_) => Ok("userEvents".to_string()),
             Message::UserFills(fills) => serde_json::to_string(&Subscription::UserFills {
                 user: fills.data.user,
@@ -421,6 +424,11 @@ impl WsManager {
                 .map_err(|e| Error::JsonParse(e.to_string()))?
         {
             "orderUpdates".to_string()
+        } else if let Subscription::AllMids { .. } =
+            serde_json::from_str::<Subscription>(&identifier)
+                .map_err(|e| Error::JsonParse(e.to_string()))?
+        {
+            "allMids".to_string()
         } else {
             identifier.clone()
         };
@@ -466,6 +474,11 @@ impl WsManager {
                 .map_err(|e| Error::JsonParse(e.to_string()))?
         {
             "orderUpdates".to_string()
+        } else if let Subscription::AllMids { .. } =
+            serde_json::from_str::<Subscription>(&identifier)
+                .map_err(|e| Error::JsonParse(e.to_string()))?
+        {
+            "allMids".to_string()
         } else {
             identifier.clone()
         };
@@ -493,5 +506,70 @@ impl WsManager {
 impl Drop for WsManager {
     fn drop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_mids_serde_round_trip_native() {
+        let json = r#"{"type":"allMids"}"#;
+        let sub: Subscription = serde_json::from_str(json).unwrap();
+        assert!(matches!(sub, Subscription::AllMids { dex: None }));
+        let reserialized = serde_json::to_string(&sub).unwrap();
+        assert_eq!(reserialized, json);
+    }
+
+    #[test]
+    fn all_mids_serde_round_trip_hip3() {
+        let json = r#"{"type":"allMids","dex":"xyz"}"#;
+        let sub: Subscription = serde_json::from_str(json).unwrap();
+        assert!(matches!(sub, Subscription::AllMids { dex: Some(ref d) } if d == "xyz"));
+        let reserialized = serde_json::to_string(&sub).unwrap();
+        assert_eq!(reserialized, json);
+    }
+
+    #[test]
+    fn all_mids_identifier_routing_uses_constant_key() {
+        let native = serde_json::to_string(&Subscription::AllMids { dex: None }).unwrap();
+        let hip3 =
+            serde_json::to_string(&Subscription::AllMids { dex: Some("xyz".into()) }).unwrap();
+
+        // Both should resolve to "allMids" through the identifier_entry logic
+        let resolve = |json: &str| -> String {
+            if let Subscription::UserEvents { .. } =
+                serde_json::from_str::<Subscription>(json).unwrap()
+            {
+                "userEvents".to_string()
+            } else if let Subscription::OrderUpdates { .. } =
+                serde_json::from_str::<Subscription>(json).unwrap()
+            {
+                "orderUpdates".to_string()
+            } else if let Subscription::AllMids { .. } =
+                serde_json::from_str::<Subscription>(json).unwrap()
+            {
+                "allMids".to_string()
+            } else {
+                json.to_string()
+            }
+        };
+        assert_eq!(resolve(&native), "allMids");
+        assert_eq!(resolve(&hip3), "allMids");
+    }
+
+    #[test]
+    fn all_mids_get_identifier_returns_constant() {
+        use crate::ws::{AllMids as AllMidsMsg, AllMidsData};
+        use std::collections::HashMap;
+
+        let msg = Message::AllMids(AllMidsMsg {
+            data: AllMidsData {
+                mids: HashMap::new(),
+            },
+        });
+        let id = WsManager::get_identifier(&msg).unwrap();
+        assert_eq!(id, "allMids");
     }
 }
