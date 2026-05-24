@@ -532,34 +532,6 @@ mod tests {
     }
 
     #[test]
-    fn all_mids_identifier_routing_uses_constant_key() {
-        let native = serde_json::to_string(&Subscription::AllMids { dex: None }).unwrap();
-        let hip3 =
-            serde_json::to_string(&Subscription::AllMids { dex: Some("xyz".into()) }).unwrap();
-
-        // Both should resolve to "allMids" through the identifier_entry logic
-        let resolve = |json: &str| -> String {
-            if let Subscription::UserEvents { .. } =
-                serde_json::from_str::<Subscription>(json).unwrap()
-            {
-                "userEvents".to_string()
-            } else if let Subscription::OrderUpdates { .. } =
-                serde_json::from_str::<Subscription>(json).unwrap()
-            {
-                "orderUpdates".to_string()
-            } else if let Subscription::AllMids { .. } =
-                serde_json::from_str::<Subscription>(json).unwrap()
-            {
-                "allMids".to_string()
-            } else {
-                json.to_string()
-            }
-        };
-        assert_eq!(resolve(&native), "allMids");
-        assert_eq!(resolve(&hip3), "allMids");
-    }
-
-    #[test]
     fn all_mids_get_identifier_returns_constant() {
         use crate::ws::{AllMids as AllMidsMsg, AllMidsData};
         use std::collections::HashMap;
